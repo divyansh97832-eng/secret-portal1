@@ -5,60 +5,27 @@
   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 
   <style>
-    body {
-      background: black;
-      color: #00ff00;
-      font-family: monospace;
-      text-align: center;
-    }
-
+    body { background: black; color: #00ff00; font-family: monospace; text-align: center; }
     h2 { text-shadow: 0 0 10px #0f0; }
-
-    #chat {
-      height: 300px;
-      width: 90%;
-      max-width: 700px;
-      margin: 10px auto;
-      overflow-y: auto;
-      border: 1px solid #0f0;
-      padding: 8px;
-      text-align: left;
-    }
-
-    video {
-      width: 45%;
-      max-width: 300px;
-      border: 1px solid #0f0;
-      margin: 5px;
-      background: black;
-    }
-
-    input, button, select {
-      padding: 6px;
-      margin: 5px;
-      background: black;
-      color: #0f0;
-      border: 1px solid #0f0;
-    }
-
-    button:hover {
-      background: #003300;
-      cursor: pointer;
-    }
-
-    @media (max-width: 600px) {
-      #chat { height: 40vh; }
-      video { width: 90%; }
-    }
+    #chat { height: 300px; width: 90%; max-width: 700px; margin: 10px auto; overflow-y: auto; border: 1px solid #0f0; padding: 8px; text-align: left; }
+    video { width: 45%; max-width: 300px; border: 1px solid #0f0; margin: 5px; background: black; }
+    input, button, select { padding: 6px; margin: 5px; background: black; color: #0f0; border: 1px solid #0f0; }
+    button:hover { background: #003300; cursor: pointer; }
+    @media (max-width: 600px) { #chat { height: 40vh; } video { width: 90%; } }
   </style>
 </head>
-
 <body>
 
 <h2>🔐 SECRET CHAT + CALL PORTAL</h2>
 
 <input id="room" placeholder="Enter Secret Room Name" />
 <button onclick="joinRoom()">Enter</button>
+
+<br>
+
+<!-- Master control buttons -->
+<button id="activateBtn" onclick="activatePortal()">🔓 Activate Portal</button>
+<button id="deactivateBtn" onclick="deactivatePortal()">🔒 Close Portal</button>
 
 <br>
 
@@ -78,6 +45,7 @@
 <br><br>
 
 <button onclick="startCall()">📞 Start Audio/Video Call</button>
+<button onclick="endCall()">📴 End Call</button>
 
 <br>
 
@@ -89,7 +57,9 @@ let peer;
 let conn;
 let myStream;
 let currentCall;
+let portalActive = false; // portal master control
 
+// --- JOIN ROOM ---
 async function joinRoom() {
   let room = document.getElementById('room').value.trim();
   if (!room) return alert("Enter room name!");
@@ -97,13 +67,20 @@ async function joinRoom() {
   peer = new Peer(room);
 
   peer.on('open', () => {
-    addMsg("🟢 Room created. Waiting for partner...");
+    addMsg("🟢 Peer ready. Waiting for connection...");
   });
 
   peer.on('connection', connection => {
     conn = connection;
-    addMsg("🔗 Partner connected (chat ready)");
     setupConnection();
+
+    if (!portalActive) {
+      alert("Portal is not active yet. Wait for first user to activate.");
+      conn.close();
+      return;
+    }
+
+    addMsg("🔗 Partner connected (chat ready)");
   });
 
   peer.on('call', call => {
@@ -112,9 +89,11 @@ async function joinRoom() {
         myStream = stream;
         document.getElementById('myVideo').srcObject = stream;
         call.answer(stream);
+        currentCall = call;
         call.on('stream', remoteStream => {
           document.getElementById('partnerVideo').srcObject = remoteStream;
         });
+        call.on('close', () => endCallUI());
       });
   });
 
@@ -123,52 +102,126 @@ async function joinRoom() {
       peer = new Peer();
       peer.on('open', () => {
         conn = peer.connect(room);
-        conn.on('open', () => addMsg("🔗 Connected to partner!"));
-        setupConnection();
+        conn.on('open', () => {
+          setupConnection();
+          addMsg("🔗 Connected to partner!");
+        });
       });
     }
   });
 }
 
+// --- SETUP CONNECTION ---
 function setupConnection() {
-  conn.on('data', data => addMsg("👤: " + data, true));
+  conn.on('data', handleData);
 }
 
-function sendMsg() {
-  let text = document.getElementById('msg').value;
-  if (!conn) return alert("Not connected yet!");
-  conn.send(text);
-  addMsg("🧑‍💻: " + text, true);
-  document.getElementById('msg').value = "";
-}
-
-function addMsg(msg, autoDelete=false) {
-  let chat = document.getElementById('chat');
-  let div = document.createElement("div");
-  div.textContent = msg;
-  chat.appendChild(div);
-  chat.scrollTop = chat.scrollHeight;
-
-  let timer = document.getElementById('timer').value;
-  if(autoDelete && timer > 0){
-    setTimeout(() => div.remove(), timer);
+// --- HANDLE INCOMING DATA ---
+function handleData(data) {
+  if (data.type === 'message') {
+    addMsg(`👤: ${data.text}`, data.autoDelete, data.id);
+  } else if (data.type === 'deleteMessage') {
+    const elem = document.getElementById(data.id);
+    if (elem) elem.remove();
+  } else if (data.type === 'selfDestruct') {
+    document.getElementById('chat').innerHTML = "";
+  } else if (data.type === 'timerChange') {
+    document.getElementById('timer').value = data.value;
+    addMsg(`🕒 Partner changed timer to ${data.value / 1000}s`);
+  } else if (data.type === 'callEnd') {
+    if (currentCall) currentCall.close();
+    endCallUI();
+  } else if (data.type === 'portalActive') {
+    portalActive = true;
+    addMsg("🟢 Portal has been activated by master");
+  } else if (data.type === 'portalClose') {
+    portalActive = false;
+    addMsg("🔴 Portal has been closed by master");
+    document.getElementById('chat').innerHTML = "";
+    endCall();
   }
 }
 
-function selfDestruct() {
-  document.getElementById('chat').innerHTML = "";
+// --- SEND MESSAGE ---
+function sendMsg() {
+  if (!conn) return alert("Not connected yet!");
+  const text = document.getElementById('msg').value;
+  const msgId = 'msg_' + Date.now();
+  const timer = parseInt(document.getElementById('timer').value);
+
+  const message = { type: 'message', text, autoDelete: timer > 0, id: msgId };
+  conn.send(message);
+  addMsg("🧑‍💻: " + text, timer > 0, msgId);
+  document.getElementById('msg').value = "";
 }
 
+// --- ADD MESSAGE ---
+function addMsg(msg, autoDelete=false, msgId=null) {
+  const chat = document.getElementById('chat');
+  const div = document.createElement("div");
+  div.textContent = msg;
+  if (msgId) div.id = msgId;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+
+  if (autoDelete) {
+    const timer = parseInt(document.getElementById('timer').value);
+    if (timer > 0) {
+      setTimeout(() => {
+        div.remove();
+        if (conn) conn.send({ type: 'deleteMessage', id: msgId });
+      }, timer);
+    }
+  }
+}
+
+// --- SELF DESTRUCT ---
+function selfDestruct() {
+  document.getElementById('chat').innerHTML = "";
+  if (conn) conn.send({ type: 'selfDestruct' });
+}
+
+// --- TIMER CHANGE SYNC ---
+document.getElementById('timer').addEventListener('change', e => {
+  if (conn) conn.send({ type: 'timerChange', value: parseInt(e.target.value) });
+});
+
+// --- MASTER PORTAL CONTROL ---
+function activatePortal() {
+  portalActive = true;
+  addMsg("🟢 Portal is now active");
+  if (conn) conn.send({ type: 'portalActive' });
+}
+
+function deactivatePortal() {
+  portalActive = false;
+  addMsg("🔴 Portal closed by master");
+  if (conn) conn.send({ type: 'portalClose' });
+  document.getElementById('chat').innerHTML = "";
+  endCall();
+}
+
+// --- CALL HANDLERS ---
 async function startCall() {
-  if (!peer || !conn) return alert("Connect to chat first!");
+  if (!peer || !conn) return alert("Connect first!");
 
   myStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
   document.getElementById('myVideo').srcObject = myStream;
 
   currentCall = peer.call(conn.peer, myStream);
-  currentCall.on('stream', remoteStream => {
-    document.getElementById('partnerVideo').srcObject = remoteStream;
-  });
+  currentCall.on('stream', remoteStream => document.getElementById('partnerVideo').srcObject = remoteStream);
+  currentCall.on('close', () => endCallUI());
+}
+
+function endCall() {
+  if (currentCall) currentCall.close();
+  currentCall = null;
+  endCallUI();
+  if (conn) conn.send({ type: 'callEnd' });
+}
+
+function endCallUI() {
+  document.getElementById('partnerVideo').srcObject = null;
 }
 </script>
 
