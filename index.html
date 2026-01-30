@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Secret Portal WhatsApp Style</title>
+  <title>Secret Portal v3</title>
   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <style>
     body { background:black; color:#00ff00; font-family:monospace; text-align:center; margin:0; }
@@ -10,7 +10,7 @@
     video { width:45%; max-width:300px; border:1px solid #0f0; margin:5px; background:black; }
     input,button,select { padding:6px; margin:5px; background:black; color:#0f0; border:1px solid #0f0; }
     button:hover{ background:#003300; cursor:pointer; }
-    #callControls{ margin:5px; }
+    #callControls{ margin:5px; display:none; } /* hidden by default */
     #incomingCallBox,#waitingScreen{ position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); display:flex; align-items:center; justify-content:center; flex-direction:column; z-index:10; color:#0f0; font-size:1.2em; display:none; }
     #incomingCallBox button{ margin:10px; padding:10px; }
     #waitingScreen p{ font-size:1.5em; }
@@ -49,10 +49,11 @@
 <br><br>
 
 <!-- Call buttons -->
-<button onclick="initCall('audio')">📞 Audio Call</button>
-<button onclick="initCall('video')">🎥 Video Call</button>
+<button onclick="startAudioCall()">📞 Audio Call</button>
+<button onclick="startVideoCall()">🎥 Video Call</button>
 <button onclick="endCall()">📴 End Call</button>
 
+<!-- In-call controls -->
 <div id="callControls">
   <button onclick="toggleMute()">Mute/Unmute</button>
   <button onclick="toggleCamera()">Camera On/Off</button>
@@ -82,7 +83,7 @@ let portalActive=false;
 let callType='';
 let incomingCallData=null;
 
-// --- JOIN ROOM ---
+// ---------------- JOIN ROOM ----------------
 function joinRoom(){
   const roomName=document.getElementById('room').value.trim();
   if(!roomName) return alert("Enter room name!");
@@ -114,7 +115,7 @@ function joinRoom(){
   });
 }
 
-// --- CONNECTION ---
+// ---------------- CONNECTION ----------------
 function setupConnection(connection){
   conn=connection;
   conn.on('open',()=>{
@@ -124,13 +125,13 @@ function setupConnection(connection){
   conn.on('data', handleData);
 }
 
-// --- CHECK PORTAL ---
+// ---------------- CHECK PORTAL ----------------
 function checkPortalStatus(){
   if(!portalActive) document.getElementById('waitingScreen').style.display='flex';
   else document.getElementById('waitingScreen').style.display='none';
 }
 
-// --- HANDLE DATA ---
+// ---------------- HANDLE DATA ----------------
 function handleData(data){
   switch(data.type){
     case 'message': addMsg(`👤: ${data.text}`, data.autoDelete, data.id); break;
@@ -145,7 +146,7 @@ function handleData(data){
   }
 }
 
-// --- CHAT ---
+// ---------------- CHAT ----------------
 function sendMsg(){
   if(!conn || conn.open===false) return alert("Not connected yet!");
   const text=document.getElementById('msg').value; if(!text) return;
@@ -173,30 +174,34 @@ function selfDestruct(){ document.getElementById('chat').innerHTML=""; if(conn &
 
 document.getElementById('timer').addEventListener('change', e=>{ if(conn && conn.open) conn.send({type:'timerChange', value:parseInt(e.target.value)}); });
 
-// --- PORTAL ---
+// ---------------- PORTAL ----------------
 function activatePortal(){ portalActive=true; checkPortalStatus(); addMsg("🟢 Portal active"); if(conn && conn.open) conn.send({type:'portalActive'}); }
 function deactivatePortal(){ portalActive=false; checkPortalStatus(); addMsg("🔴 Portal closed"); if(conn && conn.open) conn.send({type:'portalClose'}); document.getElementById('chat').innerHTML=""; endCall(); }
 
-// --- CALLS ---
-function initCall(type){
+// ---------------- CALLS ----------------
+function startAudioCall(){ startCall('audio'); }
+function startVideoCall(){ startCall('video'); }
+
+function startCall(type){
   if(!conn || conn.open===false) return alert("Connect first!");
   callType=type;
   conn.send({type:'incomingCall', from:peer.id, callType:type});
   addMsg(`📞 Calling partner (${type})...`);
 }
 
+// Incoming call popup
 function showIncomingCall(from,type){
   const box=document.getElementById('incomingCallBox');
   const txt=document.getElementById('incomingCallText');
   txt.textContent=`📞 Incoming ${type} call from ${from}`;
   box.style.display='flex';
-  // Play ringtone
   document.getElementById('ringtone').play().catch(()=>console.log("Ringtone blocked"));
 }
 
 async function acceptCall(){
   stopRingtone();
   document.getElementById('incomingCallBox').style.display='none';
+  document.getElementById('callControls').style.display='block'; // show in-call controls
   const type=incomingCallData.callType;
   const fromPeer=incomingCallData.from || incomingCallData.peer;
   myStream=await navigator.mediaDevices.getUserMedia({audio:true, video:type==='video'});
@@ -213,18 +218,27 @@ function rejectCall(){
   incomingCallData=null;
 }
 
-// --- RINGTONE ---
+// ---------------- RINGTONE ----------------
 function stopRingtone(){
   const ringtone=document.getElementById('ringtone');
   ringtone.pause();
   ringtone.currentTime=0;
 }
 
-// --- END CALL ---
-function endCall(){ if(currentCall) currentCall.close(); currentCall=null; endCallUI(); if(conn && conn.open) conn.send({type:'callEnd'}); }
-function endCallUI(){ document.getElementById('partnerVideo').srcObject=null; }
+// ---------------- END CALL ----------------
+function endCall(){
+  if(currentCall) currentCall.close();
+  currentCall=null;
+  endCallUI();
+  if(conn && conn.open) conn.send({type:'callEnd'});
+}
 
-// --- IN-CALL CONTROLS ---
+function endCallUI(){
+  document.getElementById('partnerVideo').srcObject=null;
+  document.getElementById('callControls').style.display='none'; // hide controls when call ends
+}
+
+// ---------------- IN-CALL CONTROLS ----------------
 function toggleMute(){ if(!myStream) return; myStream.getAudioTracks().forEach(track=>track.enabled=!track.enabled); }
 function toggleCamera(){ if(!myStream) return; myStream.getVideoTracks().forEach(track=>track.enabled=!track.enabled); }
 
