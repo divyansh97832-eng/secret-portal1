@@ -1,16 +1,16 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Secret Portal v4</title>
+  <title>Secret Portal Working Calls</title>
   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <style>
-    body { background:black; color:#00ff00; font-family:monospace; text-align:center; margin:0; }
+    body { background:black; color:#0f0; font-family:monospace; text-align:center; margin:0; }
     h2 { text-shadow:0 0 10px #0f0; }
     #chat { height:250px; width:90%; max-width:700px; margin:10px auto; overflow-y:auto; border:1px solid #0f0; padding:8px; text-align:left; background:#000; }
     video { width:45%; max-width:300px; border:1px solid #0f0; margin:5px; background:black; }
     input,button,select { padding:6px; margin:5px; background:black; color:#0f0; border:1px solid #0f0; }
     button:hover{ background:#003300; cursor:pointer; }
-    #callControls{ margin:5px; display:none; } /* hidden by default */
+    #callControls{ margin:5px; display:none; }
     #incomingCallBox,#waitingScreen{ position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); display:flex; align-items:center; justify-content:center; flex-direction:column; z-index:10; color:#0f0; font-size:1.2em; display:none; }
     #incomingCallBox button{ margin:10px; padding:10px; }
     #waitingScreen p{ font-size:1.5em; }
@@ -25,12 +25,10 @@
 <button onclick="joinRoom()">Enter</button>
 
 <br>
-
 <button onclick="activatePortal()">🔓 Activate Portal</button>
 <button onclick="deactivatePortal()">🔒 Close Portal</button>
 
 <br>
-
 <select id="timer">
   <option value="0">No Auto Delete</option>
   <option value="5000">Delete after 5 sec</option>
@@ -46,32 +44,26 @@
 
 <br><br>
 
-<!-- Call buttons -->
 <button onclick="startAudioCall()">📞 Audio Call</button>
 <button onclick="startVideoCall()">🎥 Video Call</button>
 <button onclick="endCall()">📴 End Call</button>
 
-<!-- In-call controls -->
 <div id="callControls">
   <button onclick="toggleMute()">Mute/Unmute</button>
   <button onclick="toggleCamera()">Camera On/Off</button>
 </div>
 
-<!-- Incoming call popup -->
 <div id="incomingCallBox">
   <p id="incomingCallText"></p>
   <button onclick="acceptCall()">✅ Accept</button>
   <button onclick="rejectCall()">❌ Reject</button>
 </div>
 
-<!-- Waiting screen -->
 <div id="waitingScreen"><p>⏳ Waiting for portal to be activated by master...</p></div>
 
-<!-- Videos -->
 <video id="myVideo" autoplay muted playsinline></video>
 <video id="partnerVideo" autoplay playsinline></video>
 
-<!-- Ringtone -->
 <audio id="ringtone" src="ringtone.mp3" loop></audio>
 
 <script>
@@ -181,21 +173,15 @@ function startVideoCall(){ startCall('video'); }
 async function startCall(type){
   if(!conn || conn.open===false) return alert("Connect first!");
   callType=type;
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio:true,
-    video:type==='video'
-  });
-  myStream=stream;
+  myStream=await navigator.mediaDevices.getUserMedia({audio:true, video:type==='video'});
   document.getElementById('myVideo').srcObject=myStream;
-  currentCall = peer.call(conn.peer, myStream, {metadata:{type:type}});
+  currentCall=peer.call(conn.peer,myStream,{metadata:{type:type}});
   currentCall.on('stream', remoteStream => document.getElementById('partnerVideo').srcObject=remoteStream);
   currentCall.on('close', endCallUI);
   document.getElementById('callControls').style.display='block';
-  // Notify partner about incoming call
   conn.send({type:'incomingCall', from:peer.id, callType:type});
 }
 
-// Incoming call popup
 function showIncomingCall(from,type){
   const box=document.getElementById('incomingCallBox');
   const txt=document.getElementById('incomingCallText');
@@ -208,20 +194,20 @@ async function acceptCall(){
   stopRingtone();
   document.getElementById('incomingCallBox').style.display='none';
   document.getElementById('callControls').style.display='block';
-  const type=incomingCallData.callType;
-  const callPeer=incomingCallData.from || incomingCallData.peer;
-  myStream=await navigator.mediaDevices.getUserMedia({audio:true, video:type==='video'});
+  myStream=await navigator.mediaDevices.getUserMedia({audio:true, video:incomingCallData.callType==='video'});
   document.getElementById('myVideo').srcObject=myStream;
-  const call = peer.call(callPeer,myStream,{metadata:{type:type}});
-  call.on('stream', remoteStream => document.getElementById('partnerVideo').srcObject=remoteStream);
-  call.on('close', endCallUI);
-  currentCall=call;
+  incomingCallData.answer(myStream);
+  incomingCallData.on('stream', remoteStream => document.getElementById('partnerVideo').srcObject=remoteStream);
+  incomingCallData.on('close', endCallUI);
+  currentCall=incomingCallData;
+  incomingCallData=null;
 }
 
 function rejectCall(){
   stopRingtone();
   document.getElementById('incomingCallBox').style.display='none';
   if(conn && conn.open) conn.send({type:'callRejected', from:peer.id});
+  incomingCallData.close();
   incomingCallData=null;
 }
 
