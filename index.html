@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Secret Portal v3</title>
+  <title>Secret Portal v4</title>
   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <style>
     body { background:black; color:#00ff00; font-family:monospace; text-align:center; margin:0; }
@@ -26,13 +26,11 @@
 
 <br>
 
-<!-- Master controls -->
 <button onclick="activatePortal()">🔓 Activate Portal</button>
 <button onclick="deactivatePortal()">🔒 Close Portal</button>
 
 <br>
 
-<!-- Timer -->
 <select id="timer">
   <option value="0">No Auto Delete</option>
   <option value="5000">Delete after 5 sec</option>
@@ -80,8 +78,8 @@
 let peer, conn;
 let myStream, currentCall;
 let portalActive=false;
-let callType='';
 let incomingCallData=null;
+let callType='';
 
 // ---------------- JOIN ROOM ----------------
 function joinRoom(){
@@ -99,8 +97,7 @@ function joinRoom(){
 
   peer.on('call', call=>{
     incomingCallData=call;
-    const type=call.metadata?.type || 'video';
-    showIncomingCall(call.peer,type);
+    showIncomingCall(call.peer,call.metadata?.type || 'video');
   });
 
   peer.on('error', err=>{
@@ -141,7 +138,7 @@ function handleData(data){
     case 'portalActive': portalActive=true; checkPortalStatus(); addMsg("🟢 Portal activated by master"); break;
     case 'portalClose': portalActive=false; checkPortalStatus(); addMsg("🔴 Portal closed by master"); document.getElementById('chat').innerHTML=""; endCall(); break;
     case 'incomingCall': incomingCallData=data; showIncomingCall(data.from,data.callType); break;
-    case 'callRejected': alert("📴 Call was rejected by partner"); stopRingtone(); break;
+    case 'callRejected': alert("📴 Call rejected"); stopRingtone(); break;
     case 'callEnd': endCallUI(); break;
   }
 }
@@ -171,7 +168,6 @@ function addMsg(msg,autoDelete=false,msgId=null){
 }
 
 function selfDestruct(){ document.getElementById('chat').innerHTML=""; if(conn && conn.open) conn.send({type:'selfDestruct'}); }
-
 document.getElementById('timer').addEventListener('change', e=>{ if(conn && conn.open) conn.send({type:'timerChange', value:parseInt(e.target.value)}); });
 
 // ---------------- PORTAL ----------------
@@ -182,11 +178,21 @@ function deactivatePortal(){ portalActive=false; checkPortalStatus(); addMsg("�
 function startAudioCall(){ startCall('audio'); }
 function startVideoCall(){ startCall('video'); }
 
-function startCall(type){
+async function startCall(type){
   if(!conn || conn.open===false) return alert("Connect first!");
   callType=type;
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio:true,
+    video:type==='video'
+  });
+  myStream=stream;
+  document.getElementById('myVideo').srcObject=myStream;
+  currentCall = peer.call(conn.peer, myStream, {metadata:{type:type}});
+  currentCall.on('stream', remoteStream => document.getElementById('partnerVideo').srcObject=remoteStream);
+  currentCall.on('close', endCallUI);
+  document.getElementById('callControls').style.display='block';
+  // Notify partner about incoming call
   conn.send({type:'incomingCall', from:peer.id, callType:type});
-  addMsg(`📞 Calling partner (${type})...`);
 }
 
 // Incoming call popup
@@ -201,14 +207,15 @@ function showIncomingCall(from,type){
 async function acceptCall(){
   stopRingtone();
   document.getElementById('incomingCallBox').style.display='none';
-  document.getElementById('callControls').style.display='block'; // show in-call controls
+  document.getElementById('callControls').style.display='block';
   const type=incomingCallData.callType;
-  const fromPeer=incomingCallData.from || incomingCallData.peer;
+  const callPeer=incomingCallData.from || incomingCallData.peer;
   myStream=await navigator.mediaDevices.getUserMedia({audio:true, video:type==='video'});
   document.getElementById('myVideo').srcObject=myStream;
-  currentCall=peer.call(fromPeer,myStream,{metadata:{type:type}});
-  currentCall.on('stream', remoteStream => document.getElementById('partnerVideo').srcObject=remoteStream);
-  currentCall.on('close', ()=>endCallUI());
+  const call = peer.call(callPeer,myStream,{metadata:{type:type}});
+  call.on('stream', remoteStream => document.getElementById('partnerVideo').srcObject=remoteStream);
+  call.on('close', endCallUI);
+  currentCall=call;
 }
 
 function rejectCall(){
@@ -235,7 +242,7 @@ function endCall(){
 
 function endCallUI(){
   document.getElementById('partnerVideo').srcObject=null;
-  document.getElementById('callControls').style.display='none'; // hide controls when call ends
+  document.getElementById('callControls').style.display='none';
 }
 
 // ---------------- IN-CALL CONTROLS ----------------
