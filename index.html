@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Secret Portal</title>
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <style>
+    body { background:black; color:#00ff00; font-family:monospace; text-align:center; }
+    h2 { text-shadow:0 0 10px #0f0; }
+    #chat { height:220px; overflow-y:auto; border:1px solid #0f0; margin:10px; padding:5px; }
+    input, button, select { padding:6px; margin:5px; background:black; color:#0f0; border:1px solid #0f0; }
+    button:hover { background:#003300; cursor:pointer; }
+  </style>
+</head>
+<body>
+
+<h2>🔐 SECRET CHAT PORTAL</h2>
+
+<input id="room" placeholder="Enter Secret Room Name" />
+<button onclick="joinRoom()">Enter</button>
+
+<br>
+
+<select id="timer">
+  <option value="0">No Auto Delete</option>
+  <option value="5000">Delete after 5 sec</option>
+  <option value="15000">Delete after 15 sec</option>
+  <option value="30000">Delete after 30 sec</option>
+</select>
+
+<div id="chat"></div>
+
+<input id="msg" placeholder="Type message..." />
+<button onclick="sendMsg()">Send</button>
+<button onclick="selfDestruct()">💣 Self Destruct</button>
+
+<script>
+let peer = new Peer();
+let conn;
+let myId;
+
+peer.on('open', id => myId = id);
+
+function joinRoom() {
+  let room = document.getElementById('room').value;
+  conn = peer.connect(room);
+
+  conn.on('open', () => addMsg("🔗 Connected to secret room"));
+
+  conn.on('data', data => {
+    addMsg("👤: " + data, true);
+  });
+}
+
+function sendMsg() {
+  let text = document.getElementById('msg').value;
+  if (!conn) return alert("Enter room first!");
+  conn.send(text);
+  addMsg("🧑‍💻: " + text, true);
+  document.getElementById('msg').value = "";
+}
+
+function addMsg(msg, autoDelete=false) {
+  let chat = document.getElementById('chat');
+  let div = document.createElement("div");
+  div.textContent = msg;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+
+  let timer = document.getElementById('timer').value;
+  if(autoDelete && timer > 0){
+    setTimeout(() => div.remove(), timer);
+  }
+}
+
+function selfDestruct() {
+  document.getElementById('chat').innerHTML = "";
+  alert("💣 Chat Wiped!");
+}
+</script>
+
+</body>
+</html>
